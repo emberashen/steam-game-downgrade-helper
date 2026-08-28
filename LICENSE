@@ -19,14 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This project is not affiliated with, endorsed by, or connected to Valve
-Corporation, FromSoftware, Bandai Namco, or the authors of any mod referenced
-in it. Steam and SteamCMD are products of Valve Corporation.
-
-It downloads only content the user's own Steam account already owns, from
-Valve's official content servers, using Valve's official SteamCMD client. It
-contains no game files, no circumvention of any protection measure, and no
-means of obtaining content the user does not own.

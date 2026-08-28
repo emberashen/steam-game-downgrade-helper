@@ -178,8 +178,16 @@ The file must never contain account names, SteamIDs or install paths.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+**MIT** — see [LICENSE](LICENSE). Use it, change it, redistribute it, build
+something else out of it, commercially or not. Keep the copyright notice with it
+and it comes with no warranty. That is the whole of it.
 
 Provided as-is. It shows you every change before making it and never deletes
 files, but you are modifying your own game install, and your saves are your own
 responsibility. You do so at your own risk.
+
+Trademark and scope notes are in [NOTICE](NOTICE) — they add no conditions to
+the licence. In short: this project is not affiliated with Valve, FromSoftware,
+Bandai Namco or any mod author; downgrading is not something Valve supports; and
+running an older build or a modified game may not agree with some anti-cheat
+systems.

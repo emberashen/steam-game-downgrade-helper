@@ -1,0 +1,32 @@
+NOTICE
+======
+
+This project is licensed under the MIT License. See LICENSE.
+
+The following is context about what the software does and does not do. It is
+not part of the licence and adds no conditions to it.
+
+
+Affiliation
+-----------
+
+This project is not affiliated with, endorsed by, or connected to Valve
+Corporation, FromSoftware, Bandai Namco, or the authors of any mod referenced
+in it. Steam and SteamCMD are products of Valve Corporation. All trademarks
+are the property of their respective owners.
+
+
+What this software does
+-----------------------
+
+It downloads only content the user's own Steam account already owns, from
+Valve's official content servers, using Valve's official SteamCMD client.
+
+It contains no game files, no circumvention of any protection measure, and no
+means of obtaining content the user does not own.
+
+Downgrading is not a feature Valve supports, and your use of Steam remains
+governed by the Steam Subscriber Agreement regardless of this licence. Running
+an older build, or running a game with modifications, may be incompatible with
+some anti-cheat systems. Those are matters between you and the relevant
+publisher, and this software makes no representation about them.
