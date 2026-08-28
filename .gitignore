@@ -1,0 +1,34 @@
+# ---------------------------------------------------------------------------
+# This repository is intended to be publishable. Nothing below may ever be
+# committed: it is either personal data or machine-specific state.
+# Run _audit-before-publish.ps1 before making the repo public.
+# ---------------------------------------------------------------------------
+
+# The tool does not create these any more, but keep the guard: nothing that
+# looks like personal save data may ever be committed.
+backups/
+
+# Run logs. These contain the user's Steam account name, SteamID, drive layout
+# and install paths.
+*.log
+logs_run.txt
+run-*.txt
+
+# Developer-only scripts, not part of the shipped pack.
+_test_*.ps1
+_backfill_*.ps1
+
+# Depot markers, if a depot folder is ever placed inside the pack.
+.sgdh-manifest.json
+
+# Windows / editor noise
+Thumbs.db
+desktop.ini
+.vscode/
+*.swp
+
+# Hash cache built at runtime; contains local file paths.
+.hashcache.json
+
+# Crash dumps from tools run in this folder
+*.stackdump

@@ -1,0 +1,274 @@
+===============================================================================
+  STEAM GAME DOWNGRADE HELPER  -  HOW TO USE ME
+===============================================================================
+
+WHAT THIS IS FOR
+
+  Steam updates games automatically and gives you no way to refuse an update or
+  go back afterwards. That is fine until a patch breaks a mod you rely on.
+
+  This tool puts an older version of a game back on your PC, and leaves your
+  mods alone while it does it.
+
+  It was built after Elden Ring patch 1.17 broke Seamless Co-op and The
+  Convergence, but it works for any Steam game you own.
+
+
+-------------------------------------------------------------------------------
+  HOW TO RUN IT
+-------------------------------------------------------------------------------
+
+  DOUBLE-CLICK:   Downgrade.bat
+
+  That is the whole thing. Do not run the .ps1 file directly - Windows blocks
+  scripts that came from the internet, and the .bat exists to get around that
+  safely, for that one run only.
+
+  Then answer the questions. It tells you what it is about to do at every stage
+  and asks before doing anything. You can quit at any prompt.
+
+
+-------------------------------------------------------------------------------
+  WHAT YOU NEED
+-------------------------------------------------------------------------------
+
+  * Windows (10 or 11)
+  * Steam, signed in, with the game installed
+  * The Steam account that OWNS the game
+  * Free disk space. Older versions are downloaded in full - for a big game
+    that can be 50 GB or more. The tool checks before starting and refuses
+    rather than filling your drive.
+  * Your Steam password, ONCE, typed into a Steam window (see below)
+
+  You do NOT need Python, or any other download or install. Everything else is
+  handled for you, including installing SteamCMD if you do not have it.
+
+
+-------------------------------------------------------------------------------
+  ABOUT YOUR PASSWORD  -  PLEASE READ, IT LOOKS BROKEN WHEN IT IS NOT
+-------------------------------------------------------------------------------
+
+  This tool never asks for, stores, or sees your Steam password.
+
+  It opens a separate SteamCMD window (Valve's own tool) and you type your
+  password into that directly. It happens ONCE. After that SteamCMD remembers,
+  and future runs need no password at all.
+
+  THE IMPORTANT BIT:
+
+     *** NOTHING APPEARS ON SCREEN WHILE YOU TYPE YOUR PASSWORD ***
+
+  No dots. No stars. No moving cursor. The line stays completely blank, exactly
+  as if the keyboard has stopped working. This is deliberate on Valve's part.
+
+  Just type it and press Enter.
+
+  You can also PASTE it with Ctrl+V (or right-click). That is invisible too, so
+  DO NOT PASTE TWICE thinking the first one failed. Paste once, press Enter.
+
+  It is your normal Steam password. There is no separate SteamCMD account.
+
+  Next comes Steam Guard, in one of two forms:
+
+     - A prompt appears on your PHONE in the Steam mobile app. There is nothing
+       to type - just approve it there. The window will sit saying
+       "Waiting for confirmation..." until you do.
+
+     - Or it asks you to type a 5-character code (email or authenticator).
+
+  When you see this, it worked:
+
+     Logging in user 'yourname' to Steam Public...OK
+     Waiting for client config...OK
+     Waiting for user info...OK
+
+     Steam>
+
+  Type  quit  and press Enter to close that window. The tool carries on by
+  itself.
+
+  AFTERWARDS, YOUR STEAM CLIENT MAY GO OFFLINE. See the next section - this
+  catches people out and looks much worse than it is.
+
+
+-------------------------------------------------------------------------------
+  IF STEAM GOES OFFLINE AFTERWARDS - THIS IS NORMAL, HERE IS THE FIX
+-------------------------------------------------------------------------------
+
+  Signing SteamCMD in can knock the Steam client off its connection.
+
+  You may see:
+
+     - "NO CONNECTION" in the Steam client
+     - "Unable to Sync - Steam was unable to sync your saves with the Steam
+       Cloud" when you launch a game
+     - a game update that fails instantly with "No connection"
+
+  None of that is damage. Your game files are fine. Steam has simply lost its
+  session because the same account signed in from SteamCMD.
+
+  THE FIX:
+
+     1. Steam menu > Exit. A FULL quit, not just closing the window.
+     2. Start Steam again.
+     3. If it still shows NO CONNECTION, use Steam menu > Go Online.
+
+  Do this BEFORE you play anything.
+
+  IMPORTANT: if you get the cloud sync warning, click Cancel, NOT "Play anyway".
+  Playing while sync is broken can overwrite good cloud saves with whatever
+  happens to be on this PC.
+
+
+-------------------------------------------------------------------------------
+  THREE THINGS THAT WILL UNDO YOUR DOWNGRADE
+-------------------------------------------------------------------------------
+
+  Get these wrong and you are back where you started, so they are worth knowing.
+
+  1. "VERIFY INTEGRITY OF GAME FILES"
+     Never use this on a downgraded game unless you WANT the newest version
+     back. It compares your files against the NEWEST patch, decides your older
+     files are damaged, and re-downloads them. One click undoes everything.
+
+     It catches the change even when the files are the same size as the new
+     ones - this has been tested, not assumed.
+
+     Which also makes it the RIGHT way to undo a downgrade on purpose. To get
+     back to the current version: right-click the game in Steam > Properties >
+     Installed Files > Verify integrity of game files. Steam re-downloads only
+     the files this tool changed.
+
+  2. LAUNCHING FROM STEAM
+     Launch the game from its mod loader instead - the .bat or launcher .exe
+     your mod came with. Pressing Play in Steam starts the game through
+     anti-cheat rather than the mod loader, and once a newer patch exists it is
+     also what triggers the update.
+
+     For Elden Ring with The Convergence, that means:
+         ConvergenceER\Start_Convergence.bat
+     For Seamless Co-op on its own:
+         ersc_launcher.exe
+
+  3. LEAVING AUTOMATIC UPDATES ON
+     In Steam: right-click the game > Properties > Updates, and set
+     "Only update this game when I launch it".
+
+     Steam has no "never update" setting. That is the strongest one available.
+     The tool checks this and warns you if it is wrong.
+
+
+-------------------------------------------------------------------------------
+  SAVE FILES - WORTH A THOUGHT FIRST
+-------------------------------------------------------------------------------
+
+  This tool does NOT touch save files, and deliberately does not try to back
+  them up.
+
+  Every game handles saves differently, and there is no rule a script can follow
+  to find them. Guessing wrong about somebody's saves is not acceptable, and a
+  partial backup is worse than none because it looks like protection.
+
+  Not every game needs you to do anything. Plenty keep saves on a server, or in
+  Steam Cloud, where changing the game version makes no difference at all.
+
+  But if the game you are reverting keeps its saves on your own PC, look up
+  where it puts them and copy them somewhere safe before you start. Searching
+  for the game's name plus "save file location" will normally find it in
+  seconds, and the game's wiki usually says.
+
+  Changing the version does not usually harm saves. But an older build may
+  refuse to read a save written by a newer one, so it is worth the two minutes.
+
+
+-------------------------------------------------------------------------------
+  WHAT IT ACTUALLY DOES TO YOUR PC
+-------------------------------------------------------------------------------
+
+  * Installs SteamCMD, if you do not already have it, where YOU choose.
+  * Downloads the older version of the game from Valve's own servers, using
+    your own account. Nothing unofficial is involved.
+  * Shows you the exact list of files it will replace, and waits for you to
+    agree, before writing anything.
+  * Replaces ONLY those files. It never deletes anything, which is how your mod
+    folders survive untouched.
+  * Checks afterwards that every file matches the version you asked for.
+
+  If anything fails, it stops and tells you. It will not leave a half-changed
+  game behind: each file is written to a temporary name and swapped into place
+  in one step, so an interruption cannot corrupt a file.
+
+
+-------------------------------------------------------------------------------
+  DISK SPACE, AND WHY IT KEEPS THE DOWNLOAD
+-------------------------------------------------------------------------------
+
+  The downloaded version is deliberately KEPT after the job is done.
+
+  It seems wasteful, but it means that when the game gets patched again - and it
+  will - running this tool a second time takes about two minutes instead of
+  another hour, because there is nothing left to download.
+
+  It lives inside the SteamCMD folder, which is why the tool asks you where to
+  put SteamCMD, and suggests the same drive as the game.
+
+  You can delete it whenever you like. The only cost is doing the download again
+  if you ever need that version back.
+
+  If you already downloaded a version before running this tool, it will find it
+  and use it instead of downloading again.
+
+
+-------------------------------------------------------------------------------
+  CHOOSING WHICH VERSION TO GO BACK TO
+-------------------------------------------------------------------------------
+
+  The tool reads Steam's own logs to find which versions your PC has had
+  installed, and shows you how many times you played each one.
+
+  That is usually the easiest way to pick: the version you played a lot, just
+  before the current one, is nearly always the one you want. You do not need to
+  know patch numbers.
+
+  Two limitations, stated plainly:
+
+     - Only versions THIS PC actually installed will be listed. If you
+       reinstalled Steam recently, there may be little or no history.
+
+     - Valve eventually removes very old versions from their servers. The tool
+       checks availability early, using the smallest download, so you find out
+       in seconds rather than after a long wait.
+
+  If the version you want is not listed, you can look it up yourself at
+  steamdb.info and enter the details manually. The tool prints the exact
+  addresses to visit when it gets to that point.
+
+
+-------------------------------------------------------------------------------
+  IF SOMETHING GOES WRONG
+-------------------------------------------------------------------------------
+
+  Nothing was changed unless the tool explicitly said it was replacing files.
+
+  To get back to the current version at any time: in Steam, right-click the
+  game > Properties > Installed Files > Verify integrity of game files. That
+  restores the newest patch, re-downloading only the files that changed.
+
+  And if Steam is showing NO CONNECTION, restart Steam first - see the section
+  above. A verify cannot run without a connection, and Steam will report that
+  it validated everything when in fact it did nothing.
+
+  This tool never touches your saves. If you backed them up before starting,
+  they are wherever you put them.
+
+
+-------------------------------------------------------------------------------
+  IS THIS ALLOWED?
+-------------------------------------------------------------------------------
+
+  Yes. It downloads games you own, from Valve's official servers, through
+  Valve's own official tool (SteamCMD), signed in with your own account. There
+  is no piracy, no cracking, and no third-party file hosting involved. It only
+  ever fetches a version of a game your account already owns.
+
+===============================================================================

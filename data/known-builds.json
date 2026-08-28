@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "note": [
+    "Hand-curated build data. Keep this SMALL and deliberate.",
+    "",
+    "Only add builds that genuinely matter to somebody: the version known to work",
+    "with a popular mod setup, and the version known to break it. Everything else",
+    "the tool tries to label at runtime from Steam's own public events endpoint,",
+    "and shows unlabelled when Steam has nothing - which is common, because",
+    "developers frequently ship builds with no patch notes attached.",
+    "",
+    "A missing label is not a problem. The tool identifies builds by when they",
+    "were installed and how much they were played, which works regardless.",
+    "",
+    "Manifest IDs are global addresses on Valve's CDN, NOT per-machine values.",
+    "An entry harvested on one PC downloads correctly on any other PC whose",
+    "Steam account owns the game.",
+    "",
+    "This file contains no personal data. Do not add account names, SteamIDs,",
+    "install paths or drive letters to it."
+  ],
+  "apps": [
+    {
+      "appid": "1245620",
+      "name": "ELDEN RING",
+      "launchNotes": [
+        "If you use The Convergence, launch via ConvergenceER\\Start_Convergence.bat.",
+        "If you use Seamless Co-op on its own, launch via ersc_launcher.exe.",
+        "Do NOT press Play in the Steam client - that starts the game through",
+        "anti-cheat instead of the mod loader."
+      ],
+      "builds": [
+        {
+          "buildid": "23850278",
+          "label": "1.17",
+          "seen": "2026-08-27",
+          "notes": "Adds groundwork for the paid Tarnished Pack DLC. BREAKS Seamless Co-op 1.9.9 and The Convergence 3.0.1 - the mod's signature scan fails with 'No such pattern'.",
+          "exeVersion": "2.7.0.0",
+          "depots": {
+            "1245621": "8950790353897081369",
+            "1245624": "6170913735491975669",
+            "2778580": "1674424364022381183"
+          }
+        },
+        {
+          "buildid": "22984413",
+          "label": "1.16.2",
+          "seen": "2026-05-28",
+          "recommended": true,
+          "notes": "Last build before 1.17. CONFIRMED WORKING with The Convergence 3.0.1 and Seamless Co-op 1.9.9, verified on two separate machines 2026-08-27. The title screen reports App Ver. 1.16.2 with Calibrations Ver. 1.16.1 - the regulation version lagged the app version, which is why 1.16.1 is often quoted by mistake. Build 19493300 is the real 1.16.1, from August 2025.",
+          "exeVersion": "2.6.2.0",
+          "depots": {
+            "1245621": "8620480158702245750",
+            "1245624": "5079239473805799861",
+            "2778580": "1674424364022381183"
+          }
+        }
+      ]
+    }
+  ]
+}
