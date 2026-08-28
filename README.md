@@ -9,7 +9,48 @@ most games have no "previous version" beta branch to fall back to.
 This tool downloads the older version from Valve's own servers, using your own
 account and Valve's own command-line tool, and puts it back over your install.
 
-**Double-click `Downgrade.bat`.** That is the whole thing.
+---
+
+## Download
+
+### [**⬇ Download the latest version (.zip)**](https://github.com/emberashen/steam-game-downgrade-helper/archive/refs/heads/main.zip)
+
+Then:
+
+1. **Right-click the downloaded zip → Properties → tick "Unblock" → OK.**
+   Windows blocks scripts that came from the internet. Doing this first saves you
+   a warning later. If you have already extracted it, no harm done — see below.
+2. **Right-click the zip → Extract All.** You will get a folder called
+   `steam-game-downgrade-helper-main`.
+3. **Open that folder and double-click `Downgrade.bat`.**
+
+That is the whole thing. It asks before it changes anything.
+
+<details>
+<summary>If Windows says "Windows protected your PC"</summary>
+
+That is SmartScreen reacting to a file downloaded from the internet, not a virus
+warning. Click **More info**, then **Run anyway**.
+
+If instead you see *"running scripts is disabled on this system"*, you have run
+`Downgrade.ps1` directly. Run `Downgrade.bat` instead — it exists precisely to
+get around that.
+
+You can read every line of what it does before running it. It is plain
+PowerShell: `Downgrade.ps1` and the files in `lib/`.
+
+</details>
+
+<details>
+<summary>Prefer git?</summary>
+
+```
+git clone https://github.com/emberashen/steam-game-downgrade-helper.git
+cd steam-game-downgrade-helper
+Downgrade.bat
+```
+
+</details>
 
 ---
 
