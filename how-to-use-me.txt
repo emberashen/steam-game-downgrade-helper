@@ -182,6 +182,41 @@ WHAT THIS IS FOR
 
 
 -------------------------------------------------------------------------------
+  IF YOUR SAVE WILL NOT LOAD AFTER DOWNGRADING
+-------------------------------------------------------------------------------
+
+  This is the most common thing people run into, and nothing is broken.
+
+  Games usually upgrade a save IN PLACE the first time it is loaded on a newer
+  build. So if you played at all after the update landed, your save is now in
+  the newer format, and the older build will not read it. Putting the older
+  game files back does not put the save back - the two are separate things.
+
+  WHAT TO DO:
+
+     1. Look for a backup folder next to your save. Many mods keep timestamped
+        copies automatically, without being asked.
+
+     2. Restore the newest backup from BEFORE the update. You lose whatever you
+        did after that point, and nothing else.
+
+  For Elden Ring, saves live in:
+
+        %appdata%\EldenRing\<your steam id>\
+
+  and The Convergence keeps its backups in that same folder, named by date and
+  time, so the right one is easy to pick out.
+
+  IMPORTANT: if the game or a mod tells you to "fix it using Steam", DO NOT.
+  That means Verify integrity of game files, which re-downloads the newest
+  patch and undoes your downgrade - see the section above.
+
+  This tool cannot do any of this for you. It does not know where your saves
+  are, and a script that guesses wrong about save files does real damage. This
+  part is yours.
+
+
+-------------------------------------------------------------------------------
   WHAT IT ACTUALLY DOES TO YOUR PC
 -------------------------------------------------------------------------------
 

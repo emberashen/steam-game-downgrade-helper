@@ -79,6 +79,25 @@ makes no difference. If the game you are reverting keeps them on your PC, look
 up where and copy them somewhere safe first — searching the game's name plus
 "save file location" normally finds it.
 
+### If your save will not load after downgrading
+
+This is the most common thing people hit, and it is not damage. Games usually
+upgrade a save **in place** the first time it is loaded on a newer build. So if
+you played at all after the update landed, your save is now in the newer format,
+and the older build will refuse to read it. Putting the older game files back
+does not put the save back.
+
+**Look for a backup folder next to your save first.** Many mods keep timestamped
+copies automatically, and restoring the newest one from *before* the update
+usually just works. You lose whatever you did since that point, and nothing else.
+
+For Elden Ring the saves live in `%appdata%\EldenRing\<your steam id>\`, and The
+Convergence keeps its backups in that same folder — named by date and time, so
+the right one is easy to pick out.
+
+**If the game or a mod tells you to "fix it using Steam", do not.** That means
+Verify Integrity, which re-downloads the newest patch and undoes your downgrade.
+
 ## Requirements
 
 Windows 10 or 11, Steam, and the account that owns the game.
