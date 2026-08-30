@@ -19,6 +19,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $PackRoot = $PSScriptRoot
 
+# Bumped only when a release goes out, never for changes between releases. It
+# exists so a bug report can say which build it came from: without it, neither
+# the user nor anyone helping them can tell whether a fix is already in the copy
+# they are running. V1 was the launch build and carries no version string at all,
+# so "no version shown" means V1.
+$PackVersion = 'V2'
+
 . "$PackRoot\lib\Vdf.ps1"
 . "$PackRoot\lib\Steam.ps1"
 . "$PackRoot\lib\BuildHistory.ps1"
@@ -77,7 +84,7 @@ function Stop-Pack {
 if (-not $NoBanner) {
     Clear-Host
     Write-Host ''
-    Write-Host '   STEAM GAME DOWNGRADE HELPER' -ForegroundColor White
+    Write-Host ('   STEAM GAME DOWNGRADE HELPER   {0}' -f $PackVersion) -ForegroundColor White
     Write-Host '   Roll a Steam game back to an earlier build.' -ForegroundColor Gray
     Write-Host ''
     Write-Host '   Nothing is changed without showing you first and asking.' -ForegroundColor DarkGray
@@ -227,8 +234,30 @@ if ($SteamCmdExe) {
     Write-Note 'copy, and each file lands atomically so an interruption cannot corrupt it.'
     Write-Host ''
     $default = (Join-Path $gameDrive '\SteamCMD')
-    $dir = Read-Host "   Install SteamCMD where? [$default]"
-    if ([string]::IsNullOrWhiteSpace($dir)) { $dir = $default }
+
+    # Validate here, not later. A path without a drive letter is treated by Windows
+    # as RELATIVE, so SteamCMD and up to 50 GB of game data land inside whatever
+    # folder the pack was unzipped into - usually Downloads - and the run then dies
+    # at step 11 of 11 when a free-space check cannot parse the drive. Defect 19.
+    # Catching it at the prompt costs a retyped line; catching it later costs an
+    # hour and a 50 GB download in the wrong place.
+    $dir = $null
+    while ($true) {
+        $entered = Read-Host "   Install SteamCMD where? [$default]"
+        if ([string]::IsNullOrWhiteSpace($entered)) { $dir = $default; break }
+        $entered = $entered.Trim().Trim('"').Trim("'")
+        if ([System.IO.Path]::IsPathRooted($entered)) { $dir = $entered; break }
+
+        Write-Bad ("That is not a full path: {0}" -f $entered)
+        $hint = Get-MissingColonHint -Path $entered
+        if ($hint) {
+            Write-Note ("Did you mean  {0}  ? A drive letter needs a colon after it." -f $hint)
+        }
+        Write-Note 'Give the full path including the drive letter and its colon.'
+        Write-Note ("Or just press Enter to use  {0}" -f $default)
+        Write-Host ''
+    }
+
     $SteamCmdExe = Install-SteamCmd -TargetDir $dir
     Write-Good "SteamCMD installed: $SteamCmdExe"
 }
@@ -570,13 +599,22 @@ if (@($ToGet).Count -eq 0) {
 }
 
 if (@($ToGet).Count -gt 0) {
-    $cmdDrive = Split-Path -Qualifier $SteamCmdExe
-    $free = (Get-FixedDrives | Where-Object { $_.Name.StartsWith($cmdDrive, 'OrdinalIgnoreCase') }).FreeBytes
-    if ($free -and $free -lt ($TotalEst * 1.15)) {
-        Write-Bad ("Not enough free space on {0}: {1} free, about {2} needed." -f $cmdDrive, (Format-Bytes $free), (Format-Bytes ($TotalEst * 1.15)))
-        Stop-Pack 'Free up space, or reinstall SteamCMD to a roomier drive, then re-run.'
+    # A free-space check is a courtesy, not a gate. It must never be the thing that
+    # ends a run - which is exactly what it did in defect 19, at step 11 of 11,
+    # after the download had already happened.
+    $cmdDrive = Get-PathQualifier -Path $SteamCmdExe
+    if ($cmdDrive) {
+        $free = (Get-FixedDrives | Where-Object { $_.Name.StartsWith($cmdDrive, 'OrdinalIgnoreCase') }).FreeBytes
+        if ($free -and $free -lt ($TotalEst * 1.15)) {
+            Write-Bad ("Not enough free space on {0}: {1} free, about {2} needed." -f $cmdDrive, (Format-Bytes $free), (Format-Bytes ($TotalEst * 1.15)))
+            Stop-Pack 'Free up space, or reinstall SteamCMD to a roomier drive, then re-run.'
+        }
+        if ($free) { Write-Good ("Free space on {0}: {1}" -f $cmdDrive, (Format-Bytes $free)) }
+    } else {
+        Write-Note ("Could not tell which drive SteamCMD is on ({0}), so the free-space" -f $SteamCmdExe)
+        Write-Note 'check was skipped. The download will still work; just make sure that'
+        Write-Note 'location has room.'
     }
-    Write-Good ("Free space on {0}: {1}" -f $cmdDrive, (Format-Bytes $free))
 }
 
 Write-Host ''

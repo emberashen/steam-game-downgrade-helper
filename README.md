@@ -1,6 +1,10 @@
 # Steam Game Downgrade Helper
 
-Roll a Steam game back to an earlier patch, without disturbing your mods.
+**V2** — roll a Steam game back to an earlier patch, without disturbing your mods.
+
+The version is shown at the top of the window when you run it. If yours shows no
+version at all, you have V1, the launch build — [get V2](#download), which fixes
+several things V1 got wrong.
 
 Steam updates games automatically and offers no supported way to decline an
 update or reverse one. That is fine until a patch breaks a mod you rely on — and
@@ -149,6 +153,35 @@ and use it rather than downloading again.
   seconds rather than after a long wait.
 - A shipped list of known builds fills some of the gap, and you can enter details
   manually from [SteamDB](https://steamdb.info) for anything not covered.
+
+## Doing it by hand instead
+
+You do not need to — the tool exists so you don't have to type any of this. But if
+you would rather drive SteamCMD yourself, sign in and then run one line per depot:
+
+```
+download_depot <appID> <depotID> <manifestID>
+```
+
+**Three numbers, and nothing else.** There is no `-manifest` flag. If you add extra
+words or dashes, SteamCMD ignores them and downloads the **current** version
+instead — so you can replace every file, still be on the newest patch, and have no
+idea why. That has caught several people out, after a 50 GB download.
+
+For Elden Ring 1.16.2, the last build before 1.17 broke Seamless Co-op and The
+Convergence:
+
+```
+download_depot 1245620 1245621 8620480158702245750
+download_depot 1245620 1245624 5079239473805799861
+```
+
+The first is the main game (~50 GB), the second holds `eldenring.exe` (~35 MB).
+Depot `2778580` is Shadow of the Erdtree and is unchanged by 1.17 — leave it alone.
+
+The files land in `<steamcmd>\steamapps\content\app_1245620\`, and you then copy
+them over your install yourself. Copying **over**, never deleting, is what keeps
+mod folders intact.
 
 ## Is this legitimate?
 

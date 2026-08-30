@@ -23,6 +23,35 @@ function Get-FixedDrives {
     return $out
 }
 
+function Get-PathQualifier {
+    # The drive of a path ("C:"), or $null when it has none.
+    #
+    # `Split-Path -Qualifier` THROWS on a path with no drive letter. A user typed
+    # an install location with the colon missing - "c\SteamCMD" where a rooted path
+    # was meant - and it killed their run at STEP 11 OF 11, after a 50 GB download,
+    # because a free-space check could not work out which drive to look at.
+    # Defect 19.
+    #
+    # Returning $null lets callers skip a check they cannot perform, instead of
+    # ending a run that was otherwise fine.
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    if (-not [System.IO.Path]::IsPathRooted($Path)) { return $null }
+    try { return (Split-Path -Qualifier $Path -ErrorAction Stop) } catch { return $null }
+}
+
+function Get-MissingColonHint {
+    # A drive letter typed without its colon - "c\SteamCMD" - which is the exact
+    # mistake behind defect 19, and an easy one to make at a bare text prompt.
+    # Returns the corrected path, or $null when that is not what went wrong.
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    $p = $Path.Trim()
+    if ($p -match '^([A-Za-z])$')            { return ('{0}:\' -f $matches[1].ToUpper()) }
+    if ($p -match '^([A-Za-z])[\\/](.*)$')   { return ('{0}:\{1}' -f $matches[1].ToUpper(), $matches[2]) }
+    return $null
+}
+
 function Find-SteamCmd {
     # Probed dynamically across every fixed drive - never assume a drive letter
     # or a user profile name.
@@ -102,11 +131,29 @@ function Install-SteamCmd {
 }
 
 function Test-SteamCmdLogin {
+    # Answers one question: is SteamCMD ALREADY signed in? A false answer is never
+    # fatal - it just means the interactive login runs next, which is the correct
+    # thing to do anyway.
+    #
+    # This runs SteamCMD with its output redirected, so if SteamCMD replies by
+    # ASKING something - a password, or a Steam Guard code on an expired token -
+    # the prompt lands in the redirect where nobody can see or answer it, and it
+    # waits forever. That is defect 18: a first-time user was stopped at step 6 of
+    # 11 by a raw stack trace from the timeout.
+    #
+    # So a timeout is treated as "not signed in" rather than as an error. SteamCMD
+    # sitting silent means it wants to ask something, and Start-InteractiveLogin -
+    # a real console with real stdin - is exactly where that question belongs.
     param(
         [Parameter(Mandatory = $true)][string]$Exe,
-        [Parameter(Mandatory = $true)][string]$AccountName
+        [Parameter(Mandatory = $true)][string]$AccountName,
+        [int]$TimeoutSec = 60
     )
-    $o = Invoke-SteamCmd -Exe $Exe -Arguments @('+login', $AccountName, '+quit') -TimeoutSec 240
+    try {
+        $o = Invoke-SteamCmd -Exe $Exe -Arguments @('+login', $AccountName, '+quit') -TimeoutSec $TimeoutSec
+    } catch {
+        return $false
+    }
     if ($null -eq $o) { return $false }
     if ($o -match 'Cached credentials not found') { return $false }
     if ($o -match 'to Steam Public\.\.\.OK') { return $true }
@@ -338,109 +385,124 @@ function Invoke-DepotDownload {
     $w = 100
     try { if ($Host.UI.RawUI.WindowSize.Width -gt 20) { $w = $Host.UI.RawUI.WindowSize.Width - 1 } } catch { }
 
-    while (-not $p.HasExited) {
-        Start-Sleep -Seconds 2
-        $tick++
-        $secs  = $sw.Elapsed.TotalSeconds
-        $delta = $secs - $lastSecs
-        $bytes = Get-DirectorySize -Path $target
+    # try/finally so an interruption cannot leave SteamCMD running. An orphaned
+    # steamcmd.exe keeps its state_<app>_<depot>.patch file locked, and the NEXT
+    # run then dies with "Failed to write patch state file (File locked)" and
+    # cannot start at all - the user is locked out entirely. Defect 17.
+    #
+    # This covers Ctrl+C and any error thrown by the monitor. It cannot cover the
+    # console window being destroyed outright, where Windows kills the process
+    # before any PowerShell cleanup runs - hence the locked-file guidance added to
+    # the failure reasons below.
+    try {
+        while (-not $p.HasExited) {
+            Start-Sleep -Seconds 2
+            $tick++
+            $secs  = $sw.Elapsed.TotalSeconds
+            $delta = $secs - $lastSecs
+            $bytes = Get-DirectorySize -Path $target
 
-        # Read the write counter. One failed read is not enough to abandon it -
-        # the process exiting mid-poll would trip that - but three in a row mean
-        # it is genuinely unavailable on this machine.
-        $written = [long](-1)
-        if ($useCounter) {
-            $written = Get-ProcessBytesWritten -ProcessId $p.Id
-            if ($written -lt 0) {
-                $failedReads++
-                if ($failedReads -ge 3) { $useCounter = $false }
+            # Read the write counter. One failed read is not enough to abandon it -
+            # the process exiting mid-poll would trip that - but three in a row mean
+            # it is genuinely unavailable on this machine.
+            $written = [long](-1)
+            if ($useCounter) {
+                $written = Get-ProcessBytesWritten -ProcessId $p.Id
+                if ($written -lt 0) {
+                    $failedReads++
+                    if ($failedReads -ge 3) { $useCounter = $false }
+                } else {
+                    $failedReads = 0
+                }
+            }
+            $haveTruth = ($useCounter -and $written -ge 0)
+
+            if ($haveTruth) {
+                $moved         = $written - $lastWritten
+                $progressBytes = $written
+                $lastWritten   = $written
             } else {
-                $failedReads = 0
+                $moved         = $bytes - $lastBytes
+                $progressBytes = $bytes
             }
-        }
-        $haveTruth = ($useCounter -and $written -ge 0)
+            $lastBytes = $bytes
+            $lastSecs  = $secs
 
-        if ($haveTruth) {
-            $moved         = $written - $lastWritten
-            $progressBytes = $written
-            $lastWritten   = $written
-        } else {
-            $moved         = $bytes - $lastBytes
-            $progressBytes = $bytes
-        }
-        $lastBytes = $bytes
-        $lastSecs  = $secs
-
-        if ($delta -gt 0 -and $moved -gt 0) {
-            $inst = $moved / $delta
-            if ($rateAvg -le 0) { $rateAvg = $inst } else { $rateAvg = (0.7 * $rateAvg) + (0.3 * $inst) }
-            $quiet = 0
-        } else {
-            $quiet++
-        }
-
-        $el = '{0:hh\:mm\:ss}' -f $sw.Elapsed
-
-        if ($haveTruth -and $progressBytes -le 0) {
-            # Nothing written yet. Normal: a resume validates first, and a fresh
-            # download fetches the manifest before any data arrives.
-            $why = 'preparing - waiting for the first data'
-            if ($resuming) { $why = 'checking what is already on disk - nothing to write yet' }
-            $line = '   {0}  {1}  {2} elapsed' -f $spin[$tick % 4], $why, $el
-        }
-        elseif ($haveTruth -and (-not $resuming) -and $EstimatedBytes -gt 0) {
-            # Cap at 99 while running: 100% must mean "the process exited".
-            $pct = [math]::Min(99.0, ($progressBytes * 100.0 / $EstimatedBytes))
-            $eta = '--:--:--'
-            if ($rateAvg -gt 0) {
-                # Kept in [long] deliberately. [math]::Max(0, ...) binds the
-                # Int32 overload and throws on anything above 2 GB.
-                $left = [long]$EstimatedBytes - [long]$progressBytes
-                if ($left -lt 0) { $left = [long]0 }
-                $remain = $left / $rateAvg
-                # Never let the ETA assert completion either. The bar caps at 99
-                # for the same reason; a zero ETA says "finished" just as loudly,
-                # and that is the reading that got a working download killed.
-                if ($remain -lt 1) { $remain = 1 }
-                if ($remain -lt 359999) { $eta = '{0:hh\:mm\:ss}' -f [timespan]::FromSeconds($remain) }
+            if ($delta -gt 0 -and $moved -gt 0) {
+                $inst = $moved / $delta
+                if ($rateAvg -le 0) { $rateAvg = $inst } else { $rateAvg = (0.7 * $rateAvg) + (0.3 * $inst) }
+                $quiet = 0
+            } else {
+                $quiet++
             }
-            $line = '   {0} {1,5:N1}%  {2,6:N2} / {3,5:N1} GB  {4,5:N1} MB/s  ETA {5}' -f `
-                    (Format-ProgressBar -Percent $pct), $pct, ($progressBytes / 1GB), ($EstimatedBytes / 1GB), ($rateAvg / 1MB), $eta
-        }
-        elseif ($haveTruth) {
-            # Real bytes, no honest denominator (a resume, or no size available).
-            $line = '   {0}  filling in missing pieces  {1,6:N2} GB written  {2,5:N1} MB/s  {3} elapsed' -f `
-                    $spin[$tick % 4], ($progressBytes / 1GB), ($rateAvg / 1MB), $el
-        }
-        else {
-            # Fallback: the write counter is unavailable, so we are back to
-            # folder size and all of its caveats. Trust it only while it grows.
-            $canMeasure = (-not $resuming) -and ($EstimatedBytes -gt 0) -and ($quiet -lt 3)
-            if ($canMeasure) {
-                $pct = [math]::Min(99.0, ($bytes * 100.0 / $EstimatedBytes))
+
+            $el = '{0:hh\:mm\:ss}' -f $sw.Elapsed
+
+            if ($haveTruth -and $progressBytes -le 0) {
+                # Nothing written yet. Normal: a resume validates first, and a fresh
+                # download fetches the manifest before any data arrives.
+                $why = 'preparing - waiting for the first data'
+                if ($resuming) { $why = 'checking what is already on disk - nothing to write yet' }
+                $line = '   {0}  {1}  {2} elapsed' -f $spin[$tick % 4], $why, $el
+            }
+            elseif ($haveTruth -and (-not $resuming) -and $EstimatedBytes -gt 0) {
+                # Cap at 99 while running: 100% must mean "the process exited".
+                $pct = [math]::Min(99.0, ($progressBytes * 100.0 / $EstimatedBytes))
                 $eta = '--:--:--'
                 if ($rateAvg -gt 0) {
-                    $left = [long]$EstimatedBytes - [long]$bytes
+                    # Kept in [long] deliberately. [math]::Max(0, ...) binds the
+                    # Int32 overload and throws on anything above 2 GB.
+                    $left = [long]$EstimatedBytes - [long]$progressBytes
                     if ($left -lt 0) { $left = [long]0 }
                     $remain = $left / $rateAvg
-                # Never let the ETA assert completion either. The bar caps at 99
-                # for the same reason; a zero ETA says "finished" just as loudly,
-                # and that is the reading that got a working download killed.
-                if ($remain -lt 1) { $remain = 1 }
+                    # Never let the ETA assert completion either. The bar caps at 99
+                    # for the same reason; a zero ETA says "finished" just as loudly,
+                    # and that is the reading that got a working download killed.
+                    if ($remain -lt 1) { $remain = 1 }
                     if ($remain -lt 359999) { $eta = '{0:hh\:mm\:ss}' -f [timespan]::FromSeconds($remain) }
                 }
                 $line = '   {0} {1,5:N1}%  {2,6:N2} / {3,5:N1} GB  {4,5:N1} MB/s  ETA {5}' -f `
-                        (Format-ProgressBar -Percent $pct), $pct, ($bytes / 1GB), ($EstimatedBytes / 1GB), ($rateAvg / 1MB), $eta
-            } else {
-                $why = 'still downloading'
-                if ($resuming)        { $why = 'filling in missing pieces' }
-                elseif ($bytes -gt 0) { $why = 'finishing off - files are created, contents still arriving' }
-                $line = '   {0}  {1}  ({2:N2} GB on disk)  {3} elapsed' -f $spin[$tick % 4], $why, ($bytes / 1GB), $el
+                        (Format-ProgressBar -Percent $pct), $pct, ($progressBytes / 1GB), ($EstimatedBytes / 1GB), ($rateAvg / 1MB), $eta
             }
+            elseif ($haveTruth) {
+                # Real bytes, no honest denominator (a resume, or no size available).
+                $line = '   {0}  filling in missing pieces  {1,6:N2} GB written  {2,5:N1} MB/s  {3} elapsed' -f `
+                        $spin[$tick % 4], ($progressBytes / 1GB), ($rateAvg / 1MB), $el
+            }
+            else {
+                # Fallback: the write counter is unavailable, so we are back to
+                # folder size and all of its caveats. Trust it only while it grows.
+                $canMeasure = (-not $resuming) -and ($EstimatedBytes -gt 0) -and ($quiet -lt 3)
+                if ($canMeasure) {
+                    $pct = [math]::Min(99.0, ($bytes * 100.0 / $EstimatedBytes))
+                    $eta = '--:--:--'
+                    if ($rateAvg -gt 0) {
+                        $left = [long]$EstimatedBytes - [long]$bytes
+                        if ($left -lt 0) { $left = [long]0 }
+                        $remain = $left / $rateAvg
+                    # Never let the ETA assert completion either. The bar caps at 99
+                    # for the same reason; a zero ETA says "finished" just as loudly,
+                    # and that is the reading that got a working download killed.
+                    if ($remain -lt 1) { $remain = 1 }
+                        if ($remain -lt 359999) { $eta = '{0:hh\:mm\:ss}' -f [timespan]::FromSeconds($remain) }
+                    }
+                    $line = '   {0} {1,5:N1}%  {2,6:N2} / {3,5:N1} GB  {4,5:N1} MB/s  ETA {5}' -f `
+                            (Format-ProgressBar -Percent $pct), $pct, ($bytes / 1GB), ($EstimatedBytes / 1GB), ($rateAvg / 1MB), $eta
+                } else {
+                    $why = 'still downloading'
+                    if ($resuming)        { $why = 'filling in missing pieces' }
+                    elseif ($bytes -gt 0) { $why = 'finishing off - files are created, contents still arriving' }
+                    $line = '   {0}  {1}  ({2:N2} GB on disk)  {3} elapsed' -f $spin[$tick % 4], $why, ($bytes / 1GB), $el
+                }
+            }
+            Write-Host ("`r" + $line.PadRight($w)) -NoNewline
         }
-        Write-Host ("`r" + $line.PadRight($w)) -NoNewline
+        Write-Host ("`r" + ('   done in {0:hh\:mm\:ss}' -f $sw.Elapsed).PadRight($w))
+    } finally {
+        if ($p -and -not $p.HasExited) {
+            try { $p.Kill(); [void]$p.WaitForExit(5000) } catch { }
+        }
     }
-    Write-Host ("`r" + ('   done in {0:hh\:mm\:ss}' -f $sw.Elapsed).PadRight($w))
 
     $log = Get-Content -LiteralPath $logPath -Raw -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
@@ -456,6 +518,12 @@ function Invoke-DepotDownload {
         elseif ($log -match 'No subscription')         { $reason = 'This Steam account does not own the game.' }
         elseif ($log -match 'Cached credentials not found') { $reason = 'SteamCMD is not logged in.' }
         elseif ($log -match 'Disk write failure|No space') { $reason = 'Ran out of disk space.' }
+        elseif ($log -match 'patch state file|File locked') {
+            # Almost always an earlier SteamCMD still running and holding the file.
+            # Say so plainly: without this the user sees only a bare failure and
+            # has no way to know that ending one process fixes it. Defect 17.
+            $reason = 'A previous SteamCMD is still running and holding its download file. Open Task Manager (Ctrl+Shift+Esc), Details tab, end any steamcmd.exe, then run this again. If that does not help, reboot.'
+        }
     }
 
     return [pscustomobject]@{
