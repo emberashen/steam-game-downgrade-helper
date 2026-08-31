@@ -140,25 +140,23 @@ function Get-CachedManifests {
     return $out
 }
 
-function Get-SteamBuildLabels {
-    # Fetches patch titles from Steam's OWN public events endpoint and maps them
-    # to build IDs. No API key, no scraping, no third-party site.
+function Get-SteamBuildEvents {
+    # Fetches build information from Steam's public endpoints including
+    # build IDs, patch titles, dates, and patch notes where available.
+    # Queries both the Events API and News API for better coverage.
+    # No API key required, no scraping, no third-party site.
     #
-    # SteamDB is the obvious place to look for this and explicitly asks people not
-    # to scrape it ("there's a chance you'll get automatically banned"), pointing
-    # at Steam directly instead. This is that. `build_id` is a first-class field
-    # on the event.
-    #
-    # COVERAGE IS THIN AND UNEVEN. Measured on Elden Ring: 93 events, of which
-    # only 6 carried a build id, and neither the build that broke mods nor the one
-    # people want to return to was among them. Developers simply stop attaching
-    # patch notes to builds. So this is ENRICHMENT - a nicer label where one
-    # exists - and must never be required for anything to work.
+    # COVERAGE IS THIN AND UNEVEN. Developers frequently don't attach patch notes
+    # to builds, so missing data is common and must be handled gracefully.
     param(
         [Parameter(Mandatory = $true)][string]$AppId,
-        [int]$TimeoutSec = 12
+        [int]$TimeoutSec = 15
     )
-    $map = @{}
+    
+    $events = New-Object System.Collections.ArrayList
+    $eventsByBuildId = @{}
+    
+    # First, query the Events API for builds with build_id tags
     $url = 'https://store.steampowered.com/events/ajaxgetpartnereventspageable/' +
            "?clan_accountid=0&appid=$AppId&offset=0&count=100&l=english"
     try {
@@ -167,40 +165,298 @@ function Get-SteamBuildLabels {
         $r = Invoke-RestMethod -Uri $url -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
         $ProgressPreference = $old
     } catch {
-        return $map   # offline, blocked, rate-limited - all fine, just no labels
+        # offline, blocked, rate-limited - continue to News API
+        $r = $null
     }
-    if (-not $r -or -not $r.events) { return $map }
+    
+    if ($r -and $r.events) {
+        foreach ($e in $r.events) {
+            $bid = $null
+            if ($e.PSObject.Properties.Name -contains 'build_id') { $bid = [string]$e.build_id }
+            if (-not $bid -or $bid -eq '0') { continue }
 
-    foreach ($e in $r.events) {
-        $bid = $null
-        if ($e.PSObject.Properties.Name -contains 'build_id') { $bid = [string]$e.build_id }
-        if (-not $bid -or $bid -eq '0') { continue }
+            $title = ''
+            if ($e.PSObject.Properties.Name -contains 'event_name') { $title = [string]$e.event_name }
+            
+            $date = $null
+            if ($e.PSObject.Properties.Name -contains 'rtime32_start_time') {
+                try { $date = [DateTimeOffset]::FromUnixTimeSeconds($e.rtime32_start_time).DateTime }
+                catch { }
+            }
+            
+            # Extract patch notes from jsondata
+            $patchNotes = ''
+            $version = ''
+            if ($e.jsondata) {
+                try {
+                    $jd = $e.jsondata
+                    if ($jd -is [string]) { $jd = $jd | ConvertFrom-Json }
+                    
+                    # Try to get title from jsondata if not in event_name
+                    if (-not $title -and $jd.localized_title) { 
+                        $title = [string]@($jd.localized_title)[0] 
+                    }
+                    
+                    # Extract patch notes body
+                    if ($jd.body) { $patchNotes = [string]$jd.body }
+                    elseif ($jd.localized_body) {
+                        $bodyObj = $jd.localized_body
+                        if ($bodyObj -is [string]) { $patchNotes = $bodyObj }
+                        elseif ($bodyObj.PSObject.Properties.Name -contains 'english') {
+                            $patchNotes = [string]$bodyObj.english
+                        }
+                    }
+                } catch { }
+            }
+            
+            # Extract version from title
+            if ($title) {
+                $m = [regex]::Match($title, '(?i)(?:version|update|patch|v)\s*[:\-]?\s*(\d+\.\d+(?:\.\d+)?)')
+                if ($m.Success) { $version = $m.Groups[1].Value }
+                else {
+                    $m2 = [regex]::Match($title, '\b(\d+\.\d+(?:\.\d+)?)\b')
+                    if ($m2.Success) { $version = $m2.Groups[1].Value }
+                }
+            }
 
-        $title = ''
-        if ($e.PSObject.Properties.Name -contains 'event_name') { $title = [string]$e.event_name }
-        if (-not $title -and $e.jsondata) {
-            try {
-                $jd = $e.jsondata
-                if ($jd -is [string]) { $jd = $jd | ConvertFrom-Json }
-                if ($jd.localized_title) { $title = [string]@($jd.localized_title)[0] }
-            } catch { }
+            $eventObj = [pscustomobject]@{
+                BuildId     = $bid
+                PatchTitle  = $title
+                Version     = $version
+                Date        = $date
+                PatchNotes  = $patchNotes
+            }
+            [void]$events.Add($eventObj)
+            $eventsByBuildId[$bid] = $eventObj
         }
-        if (-not $title) { continue }
-
-        # Pull a version out of the title where there is one. Titles vary wildly:
-        # "ELDEN RING - Patch Notes Version 1.16.1" yields 1.16.1, while
-        # "Release Note for 2025/12/16" yields nothing and is skipped.
-        $ver = $null
-        $m = [regex]::Match($title, '(?i)(?:version|update|patch|v)\s*[:\-]?\s*(\d+\.\d+(?:\.\d+)?)')
-        if ($m.Success) { $ver = $m.Groups[1].Value }
-        else {
-            $m2 = [regex]::Match($title, '\b(\d+\.\d+(?:\.\d+)?)\b')
-            if ($m2.Success) { $ver = $m2.Groups[1].Value }
+    }
+    
+    # Second, query the News API for patch notes posted as community announcements
+    # News items don't include build IDs, so we match them to events by date proximity
+    $newsUrl = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=$AppId&count=50&maxlength=0"
+    try {
+        $news = Invoke-RestMethod -Uri $newsUrl -TimeoutSec $TimeoutSec -UseBasicParsing -ErrorAction Stop
+    } catch {
+        $news = $null
+    }
+    
+    if ($news -and $news.appnews -and $news.appnews.newsitems) {
+        # Filter to only community announcements (official patch notes)
+        $announcements = $news.appnews.newsitems | Where-Object { $_.feedname -eq 'steam_community_announcements' }
+        
+        foreach ($item in $announcements) {
+            $newsDate = $null
+            if ($item.date) {
+                try { $newsDate = [DateTimeOffset]::FromUnixTimeSeconds($item.date).DateTime }
+                catch { continue }
+            }
+            if (-not $newsDate) { continue }
+            
+            $title = if ($item.title) { [string]$item.title } else { '' }
+            $patchNotes = if ($item.contents) { [string]$item.contents } else { '' }
+            
+            # Skip if no patch notes
+            if (-not $patchNotes) { continue }
+            
+            # Try to find a matching event by date (within 24 hours)
+            $matchedEvent = $null
+            foreach ($event in $events) {
+                if ($event.Date -and [Math]::Abs(($event.Date - $newsDate).TotalHours) -lt 24) {
+                    $matchedEvent = $event
+                    break
+                }
+            }
+            
+            if ($matchedEvent) {
+                # Update existing event with patch notes from News
+                if (-not $matchedEvent.PatchNotes) {
+                    $matchedEvent.PatchNotes = $patchNotes
+                }
+                if (-not $matchedEvent.PatchTitle -and $title) {
+                    $matchedEvent.PatchTitle = $title
+                }
+            } else {
+                # No matching event found, try to extract build ID from title/contents
+                $bid = $null
+                
+                # Try to extract from title
+                if ($title -match '(?i)(?:build|update)\s*[:\-]?\s*(\d{7,})') {
+                    $bid = $matches[1]
+                }
+                
+                # Try to extract from body/content
+                if (-not $bid -and $patchNotes -match '(?i)(?:build|buildid|build_id)\s*[:\-]?\s*"?(\d{7,})"?') {
+                    $bid = $matches[1]
+                }
+                
+                if ($bid) {
+                    # Extract version from title
+                    $version = ''
+                    if ($title) {
+                        $m = [regex]::Match($title, '(?i)(?:version|update|patch|v)\s*[:\-]?\s*(\d+\.\d+(?:\.\d+)?)')
+                        if ($m.Success) { $version = $m.Groups[1].Value }
+                        else {
+                            $m2 = [regex]::Match($title, '\b(\d+\.\d+(?:\.\d+)?)\b')
+                            if ($m2.Success) { $version = $m2.Groups[1].Value }
+                        }
+                    }
+                    
+                    # Add new event from News
+                    $eventObj = [pscustomobject]@{
+                        BuildId     = $bid
+                        PatchTitle  = $title
+                        Version     = $version
+                        Date        = $newsDate
+                        PatchNotes  = $patchNotes
+                    }
+                    [void]$events.Add($eventObj)
+                    $eventsByBuildId[$bid] = $eventObj
+                }
+            }
         }
-        if (-not $ver) { continue }
-        if (-not $map.ContainsKey($bid)) { $map[$bid] = $ver }
+    }
+    
+    return $events
+}
+
+function ConvertFrom-SteamBBCode {
+    # Converts Steam's BBCode-formatted patch notes to plain text for console display
+    param(
+        [Parameter(Mandatory = $true)][string]$Text
+    )
+    
+    if (-not $Text) { return '' }
+    
+    $result = $Text
+    
+    # Remove HTML tags that might be mixed in
+    $result = $result -replace '<[^>]+>', ''
+    
+    # Convert headers to uppercase with underline
+    $result = $result -replace '\[h1\]([^\[]+)\[/h1\]', "`n`$1`n$('=' * 60)"
+    $result = $result -replace '\[h2\]([^\[]+)\[/h2\]', "`n`$1`n$('-' * 40)"
+    $result = $result -replace '\[h3\]([^\[]+)\[/h3\]', "`n`$1"
+    
+    # Convert lists
+    $result = $result -replace '\[list\]', ''
+    $result = $result -replace '\[/list\]', "`n"
+    $result = $result -replace '\[\*\]\s*', '  - '
+    
+    # Convert bold and italic
+    $result = $result -replace '\[b\]([^\[]+)\[/b\]', '$1'
+    $result = $result -replace '\[i\]([^\[]+)\[/i\]', '$1'
+    $result = $result -replace '\[u\]([^\[]+)\[/u\]', '$1'
+    
+    # Convert URLs - show just the text or the URL
+    $result = $result -replace '\[url=([^\]]+)\]([^\[]+)\[/url\]', '$2 ($1)'
+    $result = $result -replace '\[url\]([^\[]+)\[/url\]', '$1'
+    
+    # Convert images - remove them
+    $result = $result -replace '\[img\][^\[]*\[/img\]', '[Image]'
+    
+    # Convert quotes
+    $result = $result -replace '\[quote\]([^\[]+)\[/quote\]', "`n> `$1`n"
+    
+    # Convert line breaks and paragraphs
+    $result = $result -replace '\[br\]', "`n"
+    $result = $result -replace '\[/p\]\s*\[p\]', "`n`n"
+    $result = $result -replace '\[p\]', ''
+    $result = $result -replace '\[/p\]', "`n"
+    
+    # Remove any remaining BBCode tags
+    $result = $result -replace '\[/?[a-z]+\d*(?:=[^\]]+)?\]', ''
+    
+    # Decode HTML entities
+    $result = $result -replace '&amp;', '&'
+    $result = $result -replace '&lt;', '<'
+    $result = $result -replace '&gt;', '>'
+    $result = $result -replace '&quot;', '"'
+    $result = $result -replace '&#39;', "'"
+    $result = $result -replace '&nbsp;', ' '
+    
+    # Clean up excessive whitespace
+    $result = $result -replace '\n{3,}', "`n`n"
+    $result = $result -replace '[ \t]+', ' '
+    
+    return $result.Trim()
+}
+
+function Get-SteamBuildLabels {
+    # Backward compatibility wrapper - returns hashtable of buildid -> version label
+    # for existing code that expects this format.
+    param(
+        [Parameter(Mandatory = $true)][string]$AppId,
+        [int]$TimeoutSec = 12
+    )
+    $map = @{}
+    $events = Get-SteamBuildEvents -AppId $AppId -TimeoutSec $TimeoutSec
+    foreach ($e in $events) {
+        if ($e.Version -and -not $map.ContainsKey($e.BuildId)) {
+            $map[$e.BuildId] = $e.Version
+        }
     }
     return $map
+}
+
+function Get-SteamLiveBuild {
+    # Queries Steam's PICS network via SteamCMD to get the current live build ID
+    # from the public branch. This is the authoritative source for what's actually
+    # live on Steam's servers right now.
+    param(
+        [Parameter(Mandatory = $true)][string]$SteamCmdExe,
+        [Parameter(Mandatory = $true)][string]$AppId,
+        [int]$TimeoutSec = 60
+    )
+    
+    if (-not (Test-Path -LiteralPath $SteamCmdExe)) {
+        return $null
+    }
+    
+    $tempFile = [System.IO.Path]::GetTempFileName()
+    try {
+        $cmdLine = "`"$SteamCmdExe`" +login anonymous +app_info_update 1 +app_info_print $AppId +quit"
+        $process = Start-Process -FilePath $SteamCmdExe -ArgumentList "+login anonymous +app_info_update 1 +app_info_print $AppId +quit" `
+            -RedirectStandardOutput $tempFile -NoNewWindow -Wait -PassThru
+        
+        if ($process.ExitCode -ne 0) {
+            Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+            return $null
+        }
+        
+        $output = Get-Content -LiteralPath $tempFile -Raw -ErrorAction SilentlyContinue
+        if (-not $output) {
+            Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+            return $null
+        }
+        
+        # Parse the VDF-like output to find depots -> branches -> public -> buildid
+        # The output format is:
+        # "depots"
+        # {
+        #     "branches"
+        #     {
+        #         "public"
+        #         {
+        #             "buildid"    "12345678"
+        #             ...
+        #         }
+        #     }
+        # }
+        
+        # Look for the pattern: "public" followed by "buildid" with a value
+        $publicPattern = '"public"\s*\{[^}]*"buildid"\s+"(\d+)"'
+        $match = [regex]::Match($output, $publicPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+        
+        if ($match.Success) {
+            return $match.Groups[1].Value
+        }
+        
+        return $null
+    } catch {
+        return $null
+    } finally {
+        Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Get-KnownBuilds {
