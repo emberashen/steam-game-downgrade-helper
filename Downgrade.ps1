@@ -163,7 +163,18 @@ Write-Good "Install folder : $($Game.InstallDir)"
 $Known   = Get-KnownBuilds -PackRoot $PackRoot -AppId $Game.AppId
 # Version names Steam itself publishes, used only to put a friendlier name next
 # to a build. Coverage is patchy and a missing name changes nothing.
-$SteamLabels = Get-SteamBuildLabels -AppId $Game.AppId
+# Fetch the full events once (includes patch notes) and derive the label map.
+$SteamEvents = @(Get-SteamBuildEvents -AppId $Game.AppId)
+$SteamLabels = @{}
+$SteamPatchNotes = @{}
+foreach ($ev in $SteamEvents) {
+    if ($ev.Version -and -not $SteamLabels.ContainsKey($ev.BuildId)) {
+        $SteamLabels[$ev.BuildId] = $ev.Version
+    }
+    if ($ev.PatchNotes -and -not $SteamPatchNotes.ContainsKey($ev.BuildId)) {
+        $SteamPatchNotes[$ev.BuildId] = $ev.PatchNotes
+    }
+}
 $Actual  = Resolve-ActualBuild -Game $Game -KnownBuilds $Known
 $CurrentBuildId = $Actual.BuildId
 
@@ -359,6 +370,22 @@ if (Confirm-YesNo 'Read your Steam logs to list available versions? (y/n)') {
     Write-Good ("{0} build(s) found in your logs" -f @($History).Count)
 }
 
+# Query Steam's PICS network for the current live build on their servers
+Write-Host ''
+Write-Note 'Checking what build is currently live on Steam servers ...'
+$SteamLiveBuildId = Get-SteamLiveBuild -SteamCmdExe $SteamCmdExe -AppId $Game.AppId
+if ($SteamLiveBuildId) {
+    Write-Good "Current live build on Steam: $SteamLiveBuildId"
+    if ($CurrentBuildId -eq $SteamLiveBuildId) {
+        Write-Note 'You have the latest build installed.'
+    } else {
+        Write-Warn "You have build $CurrentBuildId, but Steam is serving $SteamLiveBuildId."
+        Write-Note 'This confirms an update is available (which you may want to avoid for mod compatibility).'
+    }
+} else {
+    Write-Warn 'Could not query the live build from Steam. Continuing with local data.'
+}
+
 # Merge log history with the curated table. Manifest IDs are global, so a
 # shipped entry works even on a PC that never installed that build.
 $Rows = New-Object System.Collections.ArrayList
@@ -366,13 +393,16 @@ $seenBuild = @{}
 foreach ($h in $History) {
     $lbl = ''
     $note = ''
+    $patchNotes = ''
     if ($Known.ContainsKey($h.BuildId)) { $lbl = $Known[$h.BuildId].label; $note = $Known[$h.BuildId].notes }
     # Curated names win; Steam's fill the gaps.
     if (-not $lbl -and $SteamLabels.ContainsKey($h.BuildId)) { $lbl = $SteamLabels[$h.BuildId] }
+    if ($SteamPatchNotes.ContainsKey($h.BuildId)) { $patchNotes = $SteamPatchNotes[$h.BuildId] }
     [void]$Rows.Add([pscustomobject]@{
         BuildId = $h.BuildId; Label = $lbl; Installed = $h.Installed.ToString('yyyy-MM-dd')
         LastPlayed = $(if ($h.LastPlayed) { $h.LastPlayed.ToString('yyyy-MM-dd') } else { 'never' })
         Sessions = $h.Sessions; Depots = $h.Depots; Source = 'your logs'; Notes = $note
+        PatchNotes = $patchNotes
     })
     $seenBuild[$h.BuildId] = $true
 }
@@ -381,10 +411,25 @@ foreach ($k in $Known.Keys) {
     $b = $Known[$k]
     $dep = [ordered]@{}
     foreach ($p in $b.depots.PSObject.Properties) { $dep[$p.Name] = $p.Value }
+    $patchNotes = ''
+    if ($SteamPatchNotes.ContainsKey($b.buildid)) { $patchNotes = $SteamPatchNotes[$b.buildid] }
     [void]$Rows.Add([pscustomobject]@{
         BuildId = $b.buildid; Label = $b.label; Installed = $b.seen
         LastPlayed = '-'; Sessions = 0; Depots = $dep; Source = 'shipped list'; Notes = $b.notes
+        PatchNotes = $patchNotes
     })
+    $seenBuild[$k] = $true
+}
+# Add live events from Steam that aren't already in the list
+foreach ($ev in $SteamEvents) {
+    if ($seenBuild.ContainsKey($ev.BuildId)) { continue }
+    $installedDate = if ($ev.Date) { $ev.Date.ToString('yyyy-MM-dd') } else { 'unknown' }
+    [void]$Rows.Add([pscustomobject]@{
+        BuildId = $ev.BuildId; Label = $ev.Version; Installed = $installedDate
+        LastPlayed = '-'; Sessions = 0; Depots = $null; Source = 'Steam live'; Notes = ''
+        PatchNotes = $ev.PatchNotes
+    })
+    $seenBuild[$ev.BuildId] = $true
 }
 function Get-ManualTarget {
     # Manual entry, for a version this PC never installed and the shipped list
@@ -428,6 +473,7 @@ function Get-ManualTarget {
     return [pscustomobject]@{
         BuildId = $bid.Trim(); Label = $lbl.Trim(); Installed = (Get-Date).ToString('yyyy-MM-dd')
         LastPlayed = '-'; Sessions = 0; Depots = $dep; Source = 'entered by hand'; Notes = ''
+        PatchNotes = ''
     }
 }
 
@@ -453,8 +499,8 @@ if ($Actual.Certain -and $Actual.BuildId -ne $Game.BuildId) {
 }
 
 Write-Host ''
-Write-Host ('   {0,3}  {1,-11} {2,-9} {3,-11} {4,-11} {5,8}  {6}' -f '#', 'Build', 'Version', 'Installed', 'LastPlayed', 'Sessions', 'Source')
-Write-Host ('   ' + ('-' * 88))
+Write-Host ('   {0,3}  {1,-11} {2,-9} {3,-5} {4,-11} {5,-11} {6,8}  {7}' -f '#', 'Build', 'Version', 'Patch', 'Installed', 'LastPlayed', 'Sessions', 'Source')
+Write-Host ('   ' + ('-' * 93))
 for ($i = 0; $i -lt @($Rows).Count; $i++) {
     $r = $Rows[$i]
     $mark = ' '
@@ -464,7 +510,8 @@ for ($i = 0; $i -lt @($Rows).Count; $i++) {
     elseif ($r.Sessions -gt 0) { $colour = 'White' }
     $lbl = $r.Label
     if (-not $lbl) { $lbl = '?' }
-    Write-Host ('   {0,3}{1} {2,-11} {3,-9} {4,-11} {5,-11} {6,8}  {7}' -f ($i+1), $mark, $r.BuildId, $lbl, $r.Installed, $r.LastPlayed, $r.Sessions, $r.Source) -ForegroundColor $colour
+    $hasNotes = if ($r.PatchNotes) { 'Y' } else { '' }
+    Write-Host ('   {0,3}{1} {2,-11} {3,-9} {4,-5} {5,-11} {6,-11} {7,8}  {8}' -f ($i+1), $mark, $r.BuildId, $lbl, $hasNotes, $r.Installed, $r.LastPlayed, $r.Sessions, $r.Source) -ForegroundColor $colour
 }
 Write-Host ''
 if ($Actual.Certain) {
@@ -472,6 +519,10 @@ if ($Actual.Certain) {
 } else {
     Write-Note '* = the build Steam thinks you have installed. If you have already'
     Write-Note '    downgraded this game by hand, Steam will still name the newer one.'
+}
+$hasPatchNotes = @($Rows | Where-Object { $_.PatchNotes }).Count
+if ($hasPatchNotes -gt 0) {
+    Write-Note 'Y = patch notes available (enter ''p#'' to view, e.g., ''p 1'' for build 1)'
 }
 Write-Note 'Sessions = how many times you played that build. The one you played a lot,'
 Write-Note 'just before the current one, is almost always the one you want.'
@@ -503,14 +554,49 @@ if ($Recommend) {
 Write-Host ''
 Write-Note "If the version you want is not listed, enter 'm' to type its details in by"
 Write-Note 'hand from SteamDB.'
+Write-Note "Enter 'p' followed by a build number to view patch notes (e.g., 'p 3')."
 
 $Target = $null
 while (-not $Target) {
-    $sel = Read-Host ("   Which version? Enter a number$(if ($defaultIdx) { " [$defaultIdx]" }), m for manual, or q to quit")
+    $sel = Read-Host ("   Which version? Enter a number$(if ($defaultIdx) { " [$defaultIdx]" }), p# for patch notes, m for manual, or q to quit")
     if ($sel -eq 'q') { Stop-Pack 'Stopped at your request. Nothing was changed.' }
     if ($sel -eq 'm') {
         $manual = Get-ManualTarget -AppId $Game.AppId -CurrentDepots $CurrentDepots
         if ($manual) { $Target = $manual }
+        continue
+    }
+    # Handle patch notes view: 'p' or 'p 3' or 'p3'
+    if ($sel -match '^p\s*(\d+)?$') {
+        $buildNum = $matches[1]
+        if (-not $buildNum) {
+            $buildNum = Read-Host '   Enter the build number from the table'
+        }
+        $n = 0
+        if ([int]::TryParse($buildNum, [ref]$n) -and $n -ge 1 -and $n -le @($Rows).Count) {
+            $row = $Rows[$n - 1]
+            Write-Host ''
+            Write-Host ('=' * 78) -ForegroundColor DarkCyan
+            Write-Host "  Patch Notes for Build $($row.BuildId)" -ForegroundColor Cyan
+            if ($row.Label) { Write-Host "  Version: $($row.Label)" -ForegroundColor Cyan }
+            Write-Host ('=' * 78) -ForegroundColor DarkCyan
+            Write-Host ''
+            if ($row.PatchNotes) {
+                # Convert BBCode to plain text and display with word wrapping
+                $plainText = ConvertFrom-SteamBBCode -Text $row.PatchNotes
+                $lines = $plainText -split "`r?`n"
+                foreach ($line in $lines) {
+                    Write-Host "  $line" -ForegroundColor White
+                }
+            } else {
+                Write-Warn 'No patch notes available for this build.'
+                Write-Note 'Steam only provides patch notes when developers attach them to builds.'
+            }
+            Write-Host ''
+            Write-Host ('=' * 78) -ForegroundColor DarkCyan
+            Write-Host ''
+        } else {
+            Write-Warn "Invalid build number. Enter a number from 1 to $(@($Rows).Count)."
+        }
         continue
     }
     if ([string]::IsNullOrWhiteSpace($sel) -and $defaultIdx) { $sel = $defaultIdx }
@@ -518,7 +604,7 @@ while (-not $Target) {
     if ([int]::TryParse($sel, [ref]$n) -and $n -ge 1 -and $n -le @($Rows).Count) {
         if ($Rows[$n-1].BuildId -eq $CurrentBuildId) { Write-Warn 'That is the build you already have. Pick a different one.' }
         else { $Target = $Rows[$n - 1] }
-    } else { Write-Warn "Not a valid number from the list (or 'm' for manual, 'q' to quit)." }
+    } else { Write-Warn "Not a valid number from the list (or 'p#' for patch notes, 'm' for manual, 'q' to quit)." }
 }
 Write-Good "Target: build $($Target.BuildId)"
 
